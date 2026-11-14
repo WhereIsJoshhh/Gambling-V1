@@ -54,6 +54,9 @@ const sw = new Stopwatch(true);
 // Start Socket.io Server
 const server = http.createServer(app)
 const io = new Server(server, {
+  // En Vercel Services el backend solo es publico bajo /api, y el servicio
+  // recibe la ruta original (/api/...): el handshake de Socket.io va ahi.
+  path: "/api/socket.io/",
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
@@ -68,6 +71,15 @@ io.on("connection", (socket) => {
 // Backend Setup
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+
+// Las rutas de Express se definieron sin prefijo (/login, /user, ...), pero en
+// Vercel Services las peticiones llegan como /api/login, /api/user, etc.
+// Se recorta el prefijo antes de que las rutas las reciban.
+app.use((req, res, next) => {
+  if (req.url === "/api") req.url = "/";
+  else if (req.url.startsWith("/api/")) req.url = req.url.slice(4);
+  next();
+});
 app.use(
   cors({
     origin: process.env.CLIENT_URL ? [process.env.CLIENT_URL] : true,

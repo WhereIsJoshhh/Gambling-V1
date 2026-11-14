@@ -13,8 +13,12 @@ import SomeChart from "./components/SomeChart";
 
 // Backend endpoints: configurables por variables de entorno en Vercel.
 // En desarrollo local apuntan al backend unificado en el puerto 4000.
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4000';
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || API_BASE;
+// En Vercel Services todo el backend cuelga de /api en el mismo dominio:
+// REACT_APP_API_URL=/api y REACT_APP_SOCKET_URL=https://<tu-dominio>.
+// En local se apunta al backend directo (el tambien acepta el prefijo /api).
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:4000';
+const SOCKET_PATH = '/api/socket.io/';
 
 
 function App() {
@@ -60,7 +64,7 @@ function App() {
   // Socket.io setup
   useEffect(() => {
     retrieve();
-    const socket = io.connect(SOCKET_URL)
+    const socket = io.connect(SOCKET_URL, { path: SOCKET_PATH })
     setGlobalSocket(socket)
 
     socket.on('news_by_server', function (data) {
