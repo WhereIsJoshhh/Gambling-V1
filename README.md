@@ -28,10 +28,10 @@ A recreation of the popular online casino game "crash" with accurate casino odds
 
 ## Installation 
     // Clone the repository
-    $ git clone https://github.com/wbrandon25/Online-Crash-Gambling-Simulator
+    $ git clone https://github.com/WhereIsJoshhh/Gambling-V1
     
     // Navigate to directory
-    $ cd ./Online-Crash-Gambling-Simulator
+    $ cd ./Gambling-V1
 
 ### Setup and Run Client
 
@@ -59,9 +59,45 @@ A recreation of the popular online casino game "crash" with accurate casino odds
     // install nodemon for development
     $ npm i -D nodemon
     
-    // start node server (localhost:4000) and socket.io server (localhost:3001) 
+    // start the server (API + socket.io share one port: PORT, default 4000)
     $ npm start 
 
 ### Environment Variables 
 * MONGOOSE_DB_LINK - URL to MongoDB server 
 * PASSPORT_SECRET -  Secret for Passport.js authorization and authentication 
+
+
+---
+
+## Actualizacion 2026 — despliegue (Vercel + backend persistente)
+
+El proyecto se actualizo para poder desplegarse hoy:
+
+* **Frontend:** React 16 -> 18, react-scripts 3 -> 5, Chart.js 3 -> 4, axios 0.19 -> 1.x,
+  socket.io-client 4.8 y Node 20 (antes Node 16). El build pasa con `CI=true`, como en Vercel.
+  Las URLs del backend ya no estan quemadas: se configuran con `REACT_APP_API_URL` y
+  `REACT_APP_SOCKET_URL` (ver `client/.env.example`).
+* **Backend:** Express 4.21, Mongoose 5 -> 8 (sin callbacks), Passport 0.7, socket.io 4.8.
+  API y Socket.io ahora comparten **un solo puerto** (`PORT`). El documento del game loop
+  ya no lleva un id quemado en el codigo: al arrancar se reutiliza el existente o se crea
+  uno nuevo (opcional: fijarlo con `GAME_LOOP_ID`). Se quito la dependencia `redis`, que no se usaba.
+
+### Donde va cada parte
+
+| Parte | Plataforma | Notas |
+|---|---|---|
+| Frontend (`client/`) | **Vercel** | Importa este repo tal cual: el `vercel.json` de la raiz ya apunta el build a `client/` y la salida a `client/build`. |
+| Backend (`backend/`) | **Render / Railway / Fly** (servidor persistente) | **No puede ir en Vercel**: las funciones serverless no mantienen sockets ni un game loop con `setInterval` en memoria. |
+| Base de datos | **MongoDB Atlas** | Crea un cluster gratis y usa su URL en `MONGOOSE_DB_LINK`. |
+
+### Variables de entorno
+
+* **Vercel (frontend):** `REACT_APP_API_URL` y `REACT_APP_SOCKET_URL` = URL publica del backend.
+* **Backend:** `MONGOOSE_DB_LINK`, `PASSPORT_SECRET`, `CLIENT_URL` (URL de Vercel, para CORS) y `PORT` (lo inyecta la plataforma). Ver `backend/.env.example`.
+
+### Orden de despliegue
+
+1. MongoDB Atlas: crea el cluster y copia la URL.
+2. Backend en Render/Railway con las variables de arriba; anota su URL publica.
+3. Vercel: importa el repo, define `REACT_APP_API_URL` / `REACT_APP_SOCKET_URL` con la URL del backend y despliega.
+4. Backend: ajusta `CLIENT_URL` a la URL final de Vercel y reinicia el servicio.

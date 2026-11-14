@@ -1,15 +1,20 @@
+/* eslint-disable react-hooks/exhaustive-deps, jsx-a11y/anchor-is-valid */
 import React, { useEffect, useState, useRef } from "react";
 import "./css/App.css";
 
 import Axios from "axios";
 import io from 'socket.io-client'
 import { v4 as uuidv4 } from 'uuid';
-import papi from './images/lit.png'
 import Modal from "./components/modal/Modal";
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { Slide } from 'react-toastify';
 import SomeChart from "./components/SomeChart";
+
+// Backend endpoints: configurables por variables de entorno en Vercel.
+// En desarrollo local apuntan al backend unificado en el puerto 4000.
+const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4000';
+const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || API_BASE;
 
 
 function App() {
@@ -20,11 +25,11 @@ function App() {
   const [betAmount, setBetAmount] = useState(localStorage.getItem("local_storage_wager") || 100)
   const [autoPayoutMultiplier, setAutoPayoutMultiplier] = useState(localStorage.getItem("local_storage_multiplier") || 2)
   const [userData, setUserData] = useState(null);
-  const [multiplier, setMultiplier] = useState(null)
+  const [, setMultiplier] = useState(null)
   const [liveMultiplier, setLiveMultiplier] = useState('CONNECTING...')
   const [liveMultiplierSwitch, setLiveMultiplierSwitch] = useState(false)
-  const [announcement, setAnnouncement] = useState('')
-  const [globalSocket, setGlobalSocket] = useState(null)
+  const [, setAnnouncement] = useState('')
+  const [, setGlobalSocket] = useState(null)
   const [betActive, setBetActive] = useState(false)
   const [crashHistory, setCrashHistory] = useState([])
   const [roundIdList, setRoundIdList] = useState([])
@@ -44,7 +49,7 @@ function App() {
   const [chartOptions, setChartOptions] = useState({});
   const [chartSwitch, setChartSwitch] = useState(false)
   const [gamePhaseTimeElapsed, setGamePhaseTimeElapsed] = useState()
-  const [startTime, setStartTime] = useState()
+  const [, setStartTime] = useState()
   const [streakList, setStreakList] = useState([])
   const [tenNumbers, setTenNumbers] = useState([0, 1, 2, 3, 4, 5, 6, 7, 8, 9])
 
@@ -55,7 +60,7 @@ function App() {
   // Socket.io setup
   useEffect(() => {
     retrieve();
-    const socket = io.connect("http://localhost:3001")
+    const socket = io.connect(SOCKET_URL)
     setGlobalSocket(socket)
 
     socket.on('news_by_server', function (data) {
@@ -154,10 +159,6 @@ function App() {
     }
   }, [liveMultiplier])
 
-  const buttonClick = () => {
-    globalSocket.emit("clicked", { message2: Date.now() })
-  }
-
   useEffect(() => {
     let gameCounter = null
     if (liveMultiplierSwitch) {
@@ -172,7 +173,7 @@ function App() {
           multiplierCount.current = multiplierCount.current.concat([1])
           timeCount_xaxis.current = timeCount_xaxis.current.concat([0])
         }
-        if (realCounter_yaxis.current % 5 == 0) {
+        if (realCounter_yaxis.current % 5 === 0) {
           multiplierCount.current = multiplierCount.current.concat([(1.0024 * Math.pow(1.0718, time_elapsed)).toFixed(2)])
           timeCount_xaxis.current = timeCount_xaxis.current.concat([time_elapsed])
         }
@@ -244,7 +245,6 @@ function App() {
 
 
   // Routes
-  const API_BASE = 'http://localhost:4000'
   const register = () => {
     Axios({
       method: "POST",
@@ -257,7 +257,7 @@ function App() {
     }).then((res) => {
       setAuthResponseMessage(res.data)
 
-      if (res.data == "Username already exists") {
+      if (res.data === "Username already exists") {
         return
       }
       Axios({
@@ -319,25 +319,6 @@ function App() {
     })
   }
 
-  const multiply = () => {
-    Axios.get(API_BASE + "/multiply", {
-      withCredentials: true
-    }).then(res => {
-
-      if (res.data !== "No User Authentication") {
-        setUserData(res.data)
-      }
-    })
-  }
-
-  const generate = () => {
-    Axios.get(API_BASE + "/generate_crash_value", {
-      withCredentials: true
-    }).then(res => {
-      setMultiplier(res.data)
-    })
-  }
-
   const retrieve = () => {
     Axios.get(API_BASE + "/retrieve", {
       withCredentials: true
@@ -364,14 +345,6 @@ function App() {
         if (err.response) {
         }
       })
-  }
-
-  const calculate_winnings = () => {
-    Axios.get(API_BASE + "/calculate_winnings", {
-      withCredentials: true
-    }).then(res => {
-      getUser()
-    })
   }
 
   const get_game_status = () => {
@@ -466,7 +439,6 @@ function App() {
   }
 
   const verifyBetAmount = (text) => {
-    const validated = text.match(/^(\d*\.{0,1}\d{0,2}$)/)
     const re = /^[0-9\b]+$/;
 
     if (text === '' || re.test(text)) {
@@ -529,8 +501,6 @@ function App() {
     });
   };
 
-  const temp_time = Date.now()
-
   useEffect(() => {
     const temp_interval = setInterval(() => {
       setChartSwitch(false)
@@ -570,7 +540,7 @@ function App() {
         }
       },
       scales: {
-        yAxes: {
+        y: {
           type: 'linear',
 
           title: {
@@ -583,7 +553,7 @@ function App() {
             color: "rgba(255, 255, 255,1)",
             maxTicksLimit: 5,
             callback: function (value, index, values) {
-              if (value % 0.5 == 0) return (parseFloat(value)).toFixed(2)
+              if (value % 0.5 === 0) return (parseFloat(value)).toFixed(2)
             }
           },
           grid: {
@@ -591,7 +561,7 @@ function App() {
             color: 'white'
           },
         },
-        xAxes: {
+        x: {
           type: 'linear',
           title: {
             display: false,
@@ -604,9 +574,9 @@ function App() {
             maxTicksLimit: 5,
             callback: function (value, index, values) {
               if (gamePhaseTimeElapsed < 10) {
-                if (value % 1 == 0) return value
+                if (value % 1 === 0) return value
               } else {
-                if (value % 10 == 0) return value
+                if (value % 10 === 0) return value
               }
             }
           },
@@ -650,17 +620,17 @@ function App() {
         <Modal trigger={openModalLogin} setTrigger={setOpenModalLogin}>
           <div className="login-modal" >
             <div>
-              {authResponseMessage ? (<p class="err-msg">{authResponseMessage}</p>) : ('')}
+              {authResponseMessage ? (<p className="err-msg">{authResponseMessage}</p>) : ('')}
               <h1>Login</h1>
             </div>
-            <div class="form-group">
+            <div className="form-group">
               <label>Username: </label>
               <input
                 placeholder="Enter your username"
                 onChange={(e) => setLoginUsername(e.target.value)}
               />
             </div>
-            <div class="form-group">
+            <div className="form-group">
               <label>Password:</label>
               <input
                 placeholder="Enter your password"
@@ -678,17 +648,17 @@ function App() {
 
           <div className="login-modal" >
             <div>
-              {authResponseMessage ? (<p class="err-msg">{authResponseMessage}</p>) : ('')}
+              {authResponseMessage ? (<p className="err-msg">{authResponseMessage}</p>) : ('')}
               <h1>Register</h1>
             </div>
-            <div class="form-group">
+            <div className="form-group">
               <label>Username: </label>
               <input
                 placeholder="Enter your username"
                 onChange={(e) => setRegisterUsername(e.target.value)}
               />
             </div>
-            <div class="form-group">
+            <div className="form-group">
               <label>Password:</label>
               <input
                 placeholder="Enter your password"
@@ -793,12 +763,12 @@ function App() {
               />
 
               <br />
-              {bBettingPhase && !betActive ? (<button class="css-button css-button-3d css-button-3d--grey" onClick={send_bet}>Send Bet</button>) : (
+              {bBettingPhase && !betActive ? (<button className="css-button css-button-3d css-button-3d--grey" onClick={send_bet}>Send Bet</button>) : (
                 <>
                   {betActive ? (<div>
-                    <button class="css-button css-button-3d css-button-3d--grey" onClick={manual_cashout_early}> {(betActive && liveMultiplier > 1) ? (<span>Cashout at {(liveMultiplier * betAmount).toFixed(2)}</span>) : ("Starting...")}</button>
+                    <button className="css-button css-button-3d css-button-3d--grey" onClick={manual_cashout_early}> {(betActive && liveMultiplier > 1) ? (<span>Cashout at {(liveMultiplier * betAmount).toFixed(2)}</span>) : ("Starting...")}</button>
                   </div>) : (<div>
-                    <button class={`css-button css-button-3d css-button-3d--grey ${bBetForNextRound ? ('bet_for_next_round_active') : ('')}`} onClick={bet_next_round}>{bBetForNextRound ? ("Cancel Bet") : ("Bet Next round")} </button>
+                    <button className={`css-button css-button-3d css-button-3d--grey ${bBetForNextRound ? ('bet_for_next_round_active') : ('')}`} onClick={bet_next_round}>{bBetForNextRound ? ("Cancel Bet") : ("Bet Next round")} </button>
                   </div>)}
                 </>
               )}
@@ -852,20 +822,20 @@ function App() {
         </div>
 
         <div className="grid-elements">Crash History
-          <div class="container-crash-history">
+          <div className="container-crash-history">
 
-            <ul class="history-table">
-              <li class="history-table-header">
-                <div class="col col-1">Game Id</div>
-                <div class="col col-2">Crash At</div>
-                <div class="col col-3">Streak</div>
+            <ul className="history-table">
+              <li className="history-table-header">
+                <div className="col col-1">Game Id</div>
+                <div className="col col-2">Crash At</div>
+                <div className="col col-3">Streak</div>
               </li>
               {crashHistory.slice(0).reverse().map((crash, index, array) => {
                 return <div className="row-history-wrapper" key={uuidv4()}>
-                  <li class={crash >= 2 ? ("table-row-blue") : ("table-row-red")}>
-                    <div class="col col-1" >{roundIdList[index]} </div>
-                    <div class="col col-2" >{crash}x</div>
-                    <div class="col col-3" >{streakList[index]}</div>
+                  <li className={crash >= 2 ? ("table-row-blue") : ("table-row-red")}>
+                    <div className="col col-1" >{roundIdList[index]} </div>
+                    <div className="col col-2" >{crash}x</div>
+                    <div className="col col-3" >{streakList[index]}</div>
                   </li>
 
                 </div>
@@ -876,26 +846,26 @@ function App() {
 
         </div>
         <div className="grid-elements">Live Bets Tracker
-          <ul class="active-bet-table">
-            <li class="active-bet-table-header">
-              <div class="col col-1">User</div>
-              <div class="col col-2">Bet Amount</div>
-              <div class="col col-3">Cashout Multiplier</div>
-              <div class="col col-4">Profit</div>
+          <ul className="active-bet-table">
+            <li className="active-bet-table-header">
+              <div className="col col-1">User</div>
+              <div className="col col-2">Bet Amount</div>
+              <div className="col col-3">Cashout Multiplier</div>
+              <div className="col col-4">Profit</div>
             </li>
           </ul>
           <div>
             {(liveBettingTable && liveBettingTable !== "[]") ? (<>
               {
                 JSON.parse(liveBettingTable).map((message) => {
-                  return <div class="container-crash-history">
-                    <ul class="active-bet-table">
+                  return <div className="container-crash-history">
+                    <ul className="active-bet-table">
                       <div className="row-bet-wrapper" key={uuidv4()}>
-                        <li class={message.cashout_multiplier ? "table-row-green" : "table-row-blue"}>
-                          <div class="col col-1">{message.the_username} </div>
-                          <div class="col col-2">{message.bet_amount}</div>
-                          <div class="col col-3" >{message.cashout_multiplier ? (message.cashout_multiplier) : ('--')}</div>
-                          <div class="col col-4">{message.profit ? (message.profit.toFixed(2)) : ('--')}</div>
+                        <li className={message.cashout_multiplier ? "table-row-green" : "table-row-blue"}>
+                          <div className="col col-1">{message.the_username} </div>
+                          <div className="col col-2">{message.bet_amount}</div>
+                          <div className="col col-3" >{message.cashout_multiplier ? (message.cashout_multiplier) : ('--')}</div>
+                          <div className="col col-4">{message.profit ? (message.profit.toFixed(2)) : ('--')}</div>
                         </li>
                       </div>
                     </ul>
@@ -904,16 +874,16 @@ function App() {
               }
             </>) : ('')}
 
-            <div class="container-crash-history">
-              <ul class="active-bet-table">
+            <div className="container-crash-history">
+              <ul className="active-bet-table">
 
                 {tenNumbers.map((someNumber, index, array) => {
                   return <div className="row-bet-wrapper" key={uuidv4()}>
-                    <li class={"table-row-blue"}>
-                      <div class="col col-1">-- </div>
-                      <div class="col col-2">--</div>
-                      <div class="col col-3" >--</div>
-                      <div class="col col-4">--</div>
+                    <li className={"table-row-blue"}>
+                      <div className="col col-1">-- </div>
+                      <div className="col col-2">--</div>
+                      <div className="col col-3" >--</div>
+                      <div className="col col-4">--</div>
                     </li>
                   </div>
                 })}

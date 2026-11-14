@@ -1,5 +1,4 @@
 const mongoose = require("mongoose");
-mongoose.set('useFindAndModify', false);
 const express = require("express");
 const cors = require("cors");
 const passport = require("passport");
@@ -7,13 +6,44 @@ const passportLocal = require("passport-local").Strategy;
 const cookieParser = require("cookie-parser");
 const bcrypt = require("bcryptjs");
 const session = require("express-session");
-const bodyParser = require("body-parser");
 const app = express();
 const User = require("./models/user");
 const Game_loop = require("./models/game_loop")
 require('dotenv').config()
 
-const GAME_LOOP_ID = '62b7e66b1da7901bfc65df0d'
+if (!process.env.PASSPORT_SECRET) {
+  console.warn("PASSPORT_SECRET no definido; usando un secreto de desarrollo. Define uno en produccion.");
+  process.env.PASSPORT_SECRET = "dev-secret-change-me";
+}
+
+// El documento del game loop ya no se quema en el código: se busca el existente
+// o se crea uno nuevo al arrancar (ver ensureGameLoop). Si vienes de la base de
+// datos original, puedes fijarlo con la variable de entorno GAME_LOOP_ID.
+let GAME_LOOP_ID = process.env.GAME_LOOP_ID || null;
+
+async function getGameLoop() {
+  return Game_loop.findById(GAME_LOOP_ID);
+}
+
+async function ensureGameLoop() {
+  if (GAME_LOOP_ID) {
+    const existing = await getGameLoop();
+    if (existing) return existing;
+    console.warn("GAME_LOOP_ID no existe en esta base de datos; se buscara/creara otro documento.");
+  }
+  let doc = await Game_loop.findOne();
+  if (!doc) {
+    doc = await Game_loop.create({
+      previous_crashes: Array(25).fill(1),
+      round_id_list: Array.from({ length: 25 }, (_, i) => i + 1),
+      chat_messages_list: [],
+      active_player_id_list: [],
+    });
+    console.log("Documento de game loop creado:", doc.id);
+  }
+  GAME_LOOP_ID = doc.id;
+  return doc;
+}
 
 const { Server } = require('socket.io')
 const http = require('http')
@@ -35,24 +65,12 @@ io.on("connection", (socket) => {
   })
 })
 
-server.listen(3001, () => {
-})
-
-// Connect to MongoDB 
-mongoose.connect(
-  process.env.MONGOOSE_DB_LINK,
-  {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  },
-);
-
 // Backend Setup
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(
   cors({
-    origin: true,
+    origin: process.env.CLIENT_URL ? [process.env.CLIENT_URL] : true,
     credentials: true,
   })
 );
@@ -85,25 +103,26 @@ app.post("/login", (req, res, next) => {
   })(req, res, next);
 });
 
-app.post("/register", (req, res) => {
-  if (req.body.username.length < 3 || req.body.password < 3) {
-    return
+app.post("/register", async (req, res) => {
+  if (!req.body.username || !req.body.password || req.body.username.length < 3 || req.body.password.length < 3) {
+    return res.status(400).send("Username and password must have at least 3 characters");
   }
 
-  User.findOne({ username: req.body.username }, async (err, doc) => {
-    if (err) throw err;
-    if (doc) res.send("Username already exists");
-    if (!doc) {
-      const hashedPassword = await bcrypt.hash(req.body.password, 10);
+  try {
+    const doc = await User.findOne({ username: req.body.username });
+    if (doc) return res.send("Username already exists");
 
-      const newUser = new User({
-        username: req.body.username,
-        password: hashedPassword,
-      });
-      await newUser.save();
-      res.send("Loading...");
-    }
-  });
+    const hashedPassword = await bcrypt.hash(req.body.password, 10);
+    const newUser = new User({
+      username: req.body.username,
+      password: hashedPassword,
+    });
+    await newUser.save();
+    res.send("Loading...");
+  } catch (err) {
+    console.error(err);
+    res.status(500).send("Register failed");
+  }
 });
 
 // Routes
@@ -111,14 +130,16 @@ app.get("/user", checkAuthenticated, (req, res) => {
   res.send(req.user);
 });
 
-app.get("/logout", (req, res) => {
-  req.logout();
-  res.send("success2")
+app.get("/logout", (req, res, next) => {
+  req.logout((err) => {
+    if (err) return next(err);
+    res.send("success2");
+  });
 });
 
 app.get("/multiply", checkAuthenticated, async (req, res) => {
   const thisUser = await User.findById(req.user._id);
-  const game_loop = await Game_loop.findById(GAME_LOOP_ID)
+  const game_loop = await getGameLoop()
   crashMultipler = game_loop.multiplier_crash
   thisUser.balance = (thisUser.balance + crashMultipler)
   await thisUser.save();
@@ -128,7 +149,7 @@ app.get("/multiply", checkAuthenticated, async (req, res) => {
 
 app.get('/generate_crash_value', async (req, res) => {
   const randomInt = Math.floor(Math.random() * 6) + 1
-  const game_loop = await Game_loop.findById(GAME_LOOP_ID)
+  const game_loop = await getGameLoop()
   game_loop.multiplier_crash = randomInt
   await game_loop.save()
   res.json(randomInt)
@@ -136,7 +157,7 @@ app.get('/generate_crash_value', async (req, res) => {
 })
 
 app.get('/retrieve', async (req, res) => {
-  const game_loop = await Game_loop.findById(GAME_LOOP_ID)
+  const game_loop = await getGameLoop()
   crashMultipler = game_loop.multiplier_crash
   res.json(crashMultipler)
   const delta = sw.read(2);
@@ -154,7 +175,7 @@ app.post('/send_bet', checkAuthenticated, async (req, res) => {
     res.status(400).json({ customError: "Not a number" });
   }
   bDuplicate = false
-  theLoop = await Game_loop.findById(GAME_LOOP_ID)
+  theLoop = await getGameLoop()
   playerIdList = theLoop.active_player_id_list
   let now = Date.now()
   for (var i = 0; i < playerIdList.length; i++) {
@@ -192,7 +213,7 @@ app.post('/send_bet', checkAuthenticated, async (req, res) => {
 
 app.get('/calculate_winnings', checkAuthenticated, async (req, res) => {
 
-  let theLoop = await Game_loop.findById(GAME_LOOP_ID)
+  let theLoop = await getGameLoop()
   playerIdList = theLoop.active_player_id_list
   crash_number = theLoop.multiplier_crash
   for (const playerId of playerIdList) {
@@ -208,7 +229,7 @@ app.get('/calculate_winnings', checkAuthenticated, async (req, res) => {
 })
 
 app.get('/get_game_status', async (req, res) => {
-  let theLoop = await Game_loop.findById(GAME_LOOP_ID)
+  let theLoop = await getGameLoop()
   io.emit('crash_history', theLoop.previous_crashes)
   io.emit('get_round_id_list', theLoop.round_id_list)
   if (betting_phase == true) {
@@ -225,7 +246,7 @@ app.get('/manual_cashout_early', checkAuthenticated, async (req, res) => {
   if (!game_phase) {
     return
   }
-  theLoop = await Game_loop.findById(GAME_LOOP_ID)
+  theLoop = await getGameLoop()
   let time_elapsed = (Date.now() - phase_start_time) / 1000.0
   current_multiplier = (1.0024 * Math.pow(1.0718, time_elapsed)).toFixed(2)
   if ((current_multiplier <= game_crash_value) && theLoop.active_player_id_list.includes(req.user.id)) {
@@ -252,7 +273,7 @@ app.get('/auto_cashout_early', checkAuthenticated, async (req, res) => {
   if (!game_phase) {
     return
   }
-  theLoop = await Game_loop.findById(GAME_LOOP_ID)
+  theLoop = await getGameLoop()
   let time_elapsed = (Date.now() - phase_start_time) / 1000.0
   current_multiplier = (1.0024 * Math.pow(1.0718, time_elapsed)).toFixed(2)
   if ((req.user.payout_multiplier <= game_crash_value) && theLoop.active_player_id_list.includes(req.user.id)) {
@@ -282,7 +303,7 @@ app.post('/send_message_to_chatbox', checkAuthenticated, async (req, res) => {
     the_time: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
     the_date: new Date().toLocaleDateString(),
   }
-  theLoop = await Game_loop.findById(GAME_LOOP_ID)
+  theLoop = await getGameLoop()
   const somevar = await Game_loop.findOneAndUpdate(
     { _id: GAME_LOOP_ID },
     { $push: { chat_messages_list: message_json } },
@@ -294,7 +315,7 @@ app.post('/send_message_to_chatbox', checkAuthenticated, async (req, res) => {
 })
 
 app.get('/get_chat_history', async (req, res) => {
-  theLoop = await Game_loop.findById(GAME_LOOP_ID)
+  theLoop = await getGameLoop()
   res.json(theLoop.chat_messages_list)
   return
 })
@@ -305,7 +326,7 @@ app.get('/retrieve_active_bettors_list', async (req, res) => {
 })
 
 app.get('/retrieve_bet_history', async (req, res) => {
-  let theLoop = await Game_loop.findById(GAME_LOOP_ID)
+  let theLoop = await getGameLoop()
   io.emit('crash_history', theLoop.previous_crashes)
   return
 })
@@ -325,12 +346,8 @@ function checkNotAuthenticated(req, res, next) {
   next()
 }
 
-app.listen(4000, () => {
-
-});
-
 const cashout = async () => {
-  theLoop = await Game_loop.findById(GAME_LOOP_ID)
+  theLoop = await getGameLoop()
   playerIdList = theLoop.active_player_id_list
   crash_number = game_crash_value
   for (const playerId of playerIdList) {
@@ -345,11 +362,8 @@ const cashout = async () => {
   await theLoop.save()
 }
 
-// Run Game Loop
+// Run Game Loop (el intervalo arranca en start(), ya conectado a MongoDB)
 let phase_start_time = Date.now()
-const pat = setInterval(async () => {
-  await loopUpdate()
-}, 1000)
 
 const messages_list = []
 let live_bettors_table = []
@@ -383,7 +397,7 @@ const loopUpdate = async () => {
       cashout()
       sent_cashout = true
       right_now = Date.now()
-      const update_loop = await Game_loop.findById(GAME_LOOP_ID)
+      const update_loop = await getGameLoop()
       await update_loop.updateOne({ $push: { previous_crashes: game_crash_value } })
       await update_loop.updateOne({ $unset: { "previous_crashes.0": 1 } })
       await update_loop.updateOne({ $pull: { "previous_crashes": null } })
@@ -402,13 +416,13 @@ const loopUpdate = async () => {
       } else {
         random_int_0_to_1 = Math.random()
         while (random_int_0_to_1 == 0) {
-          random_int_0_to_1 = Math.random
+          random_int_0_to_1 = Math.random()
         }
         game_crash_value = 0.01 + (0.99 / random_int_0_to_1)
         game_crash_value = Math.round(game_crash_value * 100) / 100
       }
       io.emit('update_user')
-      let theLoop = await Game_loop.findById(GAME_LOOP_ID)
+      let theLoop = await getGameLoop()
       io.emit('crash_history', theLoop.previous_crashes)
       io.emit('get_round_id_list', theLoop.round_id_list)
       io.emit('start_betting_phase')
@@ -418,3 +432,33 @@ const loopUpdate = async () => {
     }
   }
 }
+
+// Arranque: un solo servidor (API + Socket.io) en PORT.
+// Necesita un proceso persistente: este backend NO puede ir en las funciones
+// serverless de Vercel porque el game loop y los sockets viven en memoria.
+const PORT = process.env.PORT || 4000;
+
+async function start() {
+  if (!process.env.MONGOOSE_DB_LINK) {
+    console.error("Falta MONGOOSE_DB_LINK en el .env (URL de MongoDB Atlas)");
+    process.exit(1);
+  }
+  await mongoose.connect(process.env.MONGOOSE_DB_LINK);
+  console.log("Conectado a MongoDB");
+  await ensureGameLoop();
+  server.listen(PORT, () => {
+    console.log(`Backend (API + Socket.io) escuchando en el puerto ${PORT}`);
+  });
+  setInterval(async () => {
+    try {
+      await loopUpdate();
+    } catch (err) {
+      console.error("Error en el game loop:", err.message);
+    }
+  }, 1000);
+}
+
+start().catch((err) => {
+  console.error("No se pudo arrancar el backend:", err);
+  process.exit(1);
+});
