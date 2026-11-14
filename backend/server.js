@@ -7,9 +7,32 @@ const cookieParser = require("cookie-parser");
 const bcrypt = require("bcryptjs");
 const session = require("express-session");
 const app = express();
+app.set('trust proxy', 1);
 const User = require("./models/user");
 const Game_loop = require("./models/game_loop")
 require('dotenv').config()
+
+const MongoStore = require("connect-mongo");
+
+let dbPromise = null;
+function connectDb() {
+  if (!process.env.MONGOOSE_DB_LINK) {
+    return Promise.reject(new Error("Falta MONGOOSE_DB_LINK (URL de MongoDB Atlas)"));
+  }
+  if (!dbPromise) {
+    dbPromise = mongoose
+      .connect(process.env.MONGOOSE_DB_LINK)
+      .then(async () => {
+        console.log("Conectado a MongoDB");
+        await ensureGameLoop();
+      })
+      .catch((err) => {
+        dbPromise = null;
+        throw err;
+      });
+  }
+  return dbPromise;
+}
 
 if (!process.env.PASSPORT_SECRET) {
   console.warn("PASSPORT_SECRET no definido; usando un secreto de desarrollo. Define uno en produccion.");
@@ -86,12 +109,28 @@ app.use(
     credentials: true,
   })
 );
+const isProd = process.env.NODE_ENV === "production" || !!process.env.VERCEL;
 app.use(
   session({
     secret: process.env.PASSPORT_SECRET,
-    resave: true,
-    saveUninitialized: true,
-
+    resave: false,
+    saveUninitialized: false,
+    // ANTES: las sesiones vivian en la RAM de un solo proceso. En Vercel (Fluid)
+    // las peticiones caen en instancias distintas que se pausan/reciclan, la
+    // sesion se perdia y /user devolvia "No User Authentication": por eso el
+    // login "no funcionaba". Ahora las sesiones viven en MongoDB.
+    store: process.env.MONGOOSE_DB_LINK
+      ? MongoStore.create({
+          mongoUrl: process.env.MONGOOSE_DB_LINK,
+          collectionName: "sessions",
+        })
+      : undefined,
+    cookie: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isProd,
+      maxAge: 1000 * 60 * 60 * 24 * 7,
+    },
   })
 );
 app.use(cookieParser(process.env.PASSPORT_SECRET));
@@ -99,16 +138,26 @@ app.use(passport.initialize());
 app.use(passport.session());
 require("./passportConfig")(passport);
 
+app.use(async (req, res, next) => {
+  try {
+    await connectDb();
+    next();
+  } catch (err) {
+    console.error("Sin conexion a MongoDB:", err.message);
+    res.status(503).send("Database unavailable");
+  }
+});
+
 //Passport.js login/register system
 app.post("/login", (req, res, next) => {
   passport.authenticate("local", (err, user, info) => {
-    if (err) throw err;
+    if (err) return next(err);
     if (!user) {
       res.send("Username or Password is Wrong")
     }
     else {
       req.logIn(user, (err) => {
-        if (err) throw err;
+        if (err) return next(err);
         res.send("Login Successful");
       });
     }
@@ -445,19 +494,12 @@ const loopUpdate = async () => {
   }
 }
 
-// Arranque: un solo servidor (API + Socket.io) en PORT.
-// Necesita un proceso persistente: este backend NO puede ir en las funciones
-// serverless de Vercel porque el game loop y los sockets viven en memoria.
+// Arranque en modo servidor persistente (local / Render / Railway):
+// API + Socket.io en PORT y el game loop corriendo.
 const PORT = process.env.PORT || 4000;
 
 async function start() {
-  if (!process.env.MONGOOSE_DB_LINK) {
-    console.error("Falta MONGOOSE_DB_LINK en el .env (URL de MongoDB Atlas)");
-    process.exit(1);
-  }
-  await mongoose.connect(process.env.MONGOOSE_DB_LINK);
-  console.log("Conectado a MongoDB");
-  await ensureGameLoop();
+  await connectDb();
   server.listen(PORT, () => {
     console.log(`Backend (API + Socket.io) escuchando en el puerto ${PORT}`);
   });
@@ -470,7 +512,15 @@ async function start() {
   }, 1000);
 }
 
-start().catch((err) => {
-  console.error("No se pudo arrancar el backend:", err);
-  process.exit(1);
-});
+if (require.main === module) {
+  start().catch((err) => {
+    console.error("No se pudo arrancar el backend:", err);
+    process.exit(1);
+  });
+}
+
+// En Vercel la plataforma importa el entrypoint: se exporta el servidor HTTP
+// (Express + Socket.io). La conexion a Mongo y las sesiones en Mongo hacen
+// que el login funcione aunque cada peticion caiga en una instancia distinta.
+module.exports = server;
+module.exports.app = app;

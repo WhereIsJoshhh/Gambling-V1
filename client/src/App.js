@@ -16,8 +16,14 @@ import SomeChart from "./components/SomeChart";
 // En Vercel Services todo el backend cuelga de /api en el mismo dominio:
 // REACT_APP_API_URL=/api y REACT_APP_SOCKET_URL=https://<tu-dominio>.
 // En local se apunta al backend directo (el tambien acepta el prefijo /api).
-const API_BASE = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:4000';
+// Si no se configuraron las variables en Vercel, se deduce del dominio actual:
+// en local se apunta al backend directo; en cualquier otro dominio se usa el
+// mismo origen con el prefijo /api (el esquema de Vercel Services). Antes el
+// respaldo era siempre localhost, y un despliegue sin variables quedaba
+// llamando al telefono/computadora del visitante: registro y login muertos.
+const onLocalhost = ['localhost', '127.0.0.1'].includes(window.location.hostname);
+const API_BASE = process.env.REACT_APP_API_URL || (onLocalhost ? 'http://localhost:4000/api' : '/api');
+const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || (onLocalhost ? 'http://localhost:4000' : window.location.origin);
 const SOCKET_PATH = '/api/socket.io/';
 
 
@@ -281,8 +287,8 @@ function App() {
           registerAndLoginToast()
 
         }
-      })
-    });
+      }).catch(() => setAuthResponseMessage('No se pudo contactar el servidor. Intenta de nuevo.'))
+    }).catch(() => setAuthResponseMessage('No se pudo contactar el servidor. Intenta de nuevo.'));
   };
 
   const login = () => {
@@ -302,7 +308,7 @@ function App() {
         setOpenModalLogin(false)
         loginToast()
       }
-    })
+    }).catch(() => setAuthResponseMessage('No se pudo contactar el servidor. Intenta de nuevo.'))
   };
 
   const getUser = () => {
@@ -637,6 +643,7 @@ function App() {
             <div className="form-group">
               <label>Password:</label>
               <input
+                type="password"
                 placeholder="Enter your password"
                 onChange={(e) => setLoginPassword(e.target.value)}
               />
@@ -665,6 +672,7 @@ function App() {
             <div className="form-group">
               <label>Password:</label>
               <input
+                type="password"
                 placeholder="Enter your password"
                 onChange={(e) => setRegisterPassword(e.target.value)}
               />
