@@ -23,4 +23,17 @@ const user = new mongoose.Schema({
 
 });
 
+// El hash de la contraseña nunca debe salir en una respuesta HTTP.
+// Antes, GET /user (y /multiply, /manual_cashout_early y /auto_cashout_early)
+// devolvían el documento Mongoose completo, hash incluido. Este transform
+// lo quita en toda serialización JSON / objeto plano, sin tocar la BD ni
+// el login (passport sigue leyendo user.password directo del documento).
+function stripPassword(doc, ret) {
+  delete ret.password;
+  return ret;
+}
+
+user.set("toJSON", { transform: stripPassword });
+user.set("toObject", { transform: stripPassword });
+
 module.exports = mongoose.model("User", user);
